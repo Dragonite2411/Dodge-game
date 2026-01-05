@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dodge! — Tropical (overlay slides away)</title>
+  <style>
+    /* Tropical palette & base */
+    :root{
+      --bg-1: #071021;
+      --bg-2: #05222b;
+      --glass: rgba(255,255,255,0.06);
+      --accent: #00CC99;
+      --muted: rgba(255,255,255,0.6);
+      --shadow: 0 20px 40px rgba(0,0,0,0.6);
+      --glass-blur: 8px;
+    }
+
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;
+      color:#f7fcfb;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:24px;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+      background: linear-gradient(180deg,var(--bg-1) 0%, var(--bg-2) 100%);
+      overflow:hidden;
+    }
+
+    /* wrapper so canvas can be scaled and brought forward */
+    .canvas-wrap{
+      position:relative;
+      z-index:0;
+      transition: transform 420ms cubic-bezier(.2,.9,.3,1), box-shadow 320ms;
+    }
+    .canvas-wrap.bring-forward{
+      transform: scale(1.03);
+      z-index:2;
+      box-shadow: 0 40px 80px rgba(0,0,0,0.6);
+    }
+
+    canvas{
+      border-radius:16px;
+      display:block;
+      width:100%;
+      max-width:680px;
+      height:auto;
+      background: radial-gradient(circle at 20% 15%, rgba(26,193,221,0.06), transparent 6%),
+                  radial-gradient(circle at 80% 75%, rgba(4,205,255,0.03), transparent 8%),
+                  linear-gradient(180deg, rgba(0,0,0,0.12), rgba(0,0,0,0.18));
+      /* make sure the canvas doesn't push to the very bottom of viewport */
+      margin-bottom: 28px;
+    }
+
+    /* Overlay (start / game over) - centered glass card */
+    .overlay{
+      position:absolute;
+      top:50%;
+      left:50%;
+      transform:translate(-50%,-50%);
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border-radius:14px;
+      width:360px;
+      text-align:center;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(var(--glass-blur));
+      padding:20px 22px;
+      color:var(--muted);
+      pointer-events:auto;
+      border:1px solid rgba(255,255,255,0.03);
+      transition: transform 420ms cubic-bezier(.2,.9,.3,1), opacity 360ms ease;
+      z-index: 4;
+    }
+    /* slide/fade the whole overlay upward & out of view */
+    .overlay.slide-out{
+      transform: translate(-50%, -200%) scale(.98);
+      opacity:0;
+      pointer-events:none;
+    }
+
+    .overlay h1{
+      margin:2px 0 8px 0;
+      font-size:34px;
+      color: #EAFAF4;
+      text-shadow: 0 6px 18px rgba(0,0,0,0.6);
+    }
+    .overlay p{ margin:0 0 12px 0; font-size:15px; color: #dbeee7; }
+
+    .controls{ display:flex; gap:12px; justify-content:center; margin-top:12px; }
+    .btn{
+      appearance:none;
+      -webkit-appearance:none;
+      border:0;
+      padding:10px 16px;
+      border-radius:10px;
+      font-weight:700;
+      cursor:pointer;
+      color:white;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.45), inset 0 -2px 0 rgba(255,255,255,0.03);
+      transition: transform 200ms ease, opacity 200ms ease;
+    }
+    .btn.start{ background: linear-gradient(180deg,#00CC99, #00755E); }
+    .btn.mute{ background: transparent; border:1px solid rgba(255,255,255,0.12); color:#D6FFF0; padding:8px 14px; }
+
+    .final-score{ margin-top:10px; font-size:14px; color:#9FE2BF; }
+
+    .hud{
+      position: absolute;
+      top:22px;
+      left:22px;
+      color:var(--muted);
+      display:flex;
+      gap:18px;
+      font-weight:700;
+      z-index:10;
+      user-select:none;
+      align-items:center;
+    }
+    .hud .value{ color:#BFFCE3; font-weight:800; margin-left:6px; }
+
+    .glow{ position:absolute; pointer-events:none; z-index:1; filter:blur(18px) saturate(120%); mix-blend-mode:screen; opacity:0.9; }
+    .glow.g1{ top:8%; left:18%; width:86px; height:36px; background: rgba(26,193,221,0.18); border-radius:14px; transform:rotate(-6deg); }
+    .glow.g2{ top:28%; right:14%; width:56px; height:56px; background: rgba(153,130,236,0.18); border-radius:18px; }
+    .glow.g3{ bottom:10%; left:10%; width:120px; height:46px; background: rgba(255,130,83,0.12); border-radius:12px; }
+
+    @media (max-width:520px){
+      .overlay{ width:92%; padding:18px; }
+      canvas{ max-width:92vw; }
+    }
+  </style>
+</head>
+<body>
+  <div class="glow g1"></div>
+  <div class="glow g2"></div>
+  <div class="glow g3"></div>
+
+  <div id="overlay" class="overlay show" aria-hidden="false">
+    <h1>Dodge!</h1>
+    <p id="message">Avoid the tropical blocks. Use ← → or touch / drag to move.</p>
+    <div class="controls">
+      <button id="startBtn" class="btn start">Start Game</button>
+      <button id="muteBtn" class="btn mute">Mute</button>
+    </div>
+    <div id="finalScore" class="final-score"></div>
+  </div>
+
+  <div class="canvas-wrap" id="canvasWrap">
+    <canvas id="gameCanvas" width="680" height="920"></canvas>
+  </div>
+
+  <div id="hud" class="hud">
+    <div>Score: <span id="score" class="value">0</span></div>
+    <div>High: <span id="highScore" class="value">0</span></div>
+  </div>
+
+  <script>
+  (function(){
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d', { alpha: false });
+
+    const overlay = document.getElementById('overlay');
+    const startBtn = document.getElementById('startBtn');
+    const muteBtn = document.getElementById('muteBtn');
+    const scoreEl = document.getElementById('score');
+    const highEl = document.getElementById('highScore');
+    const finalScoreEl = document.getElementById('finalScore');
+    const canvasWrap = document.getElementById('canvasWrap');
+
+    const W = canvas.width, H = canvas.height;
+    let lastTime = 0;
+    let playing = false;
+    let running = true;
+    let paused = false;
+    let score = 0;
+    let highScore = +localStorage.getItem('dodge_high') || 0;
+    highEl.textContent = highScore;
+
+    const PALETTE = [
+      "#00CC99", "#FC8EAC", "#FF8559", "#FF8243", "#FFEFD5",
+      "#00755E", "#1AC1DD", "#9FE2BF", "#9683EC", "#FA79B9",
+      "#E63E62", "#89F336", "#FA5F55", "#00FFFF", "#04CDFF", "#FFE135",
+      "#FFB6C1", "#FF9AA2", "#FFB347", "#7FEFC5"
+    ];
+
+    // Player: adjusted player's vertical placement to be proportional to canvas height
+    const player = { w: 96, h: 18, x: W/2 - 48, y: Math.round(H - H * 0.11), speed:760, vx:0 };
+    let objects = [];
+    let spawnTimer = 0;
+    let spawnInterval = 0.9;
+    let decorInterval = 0.7;
+    let difficultyTimer = 0;
+    let muted = false;
+
+    function beep(freq = 440, time = 0.06, vol = 0.04) {
+      if (muted) return;
+      try {
+        const ac = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ac.createOscillator();
+        const g = ac.createGain();
+        o.connect(g); g.connect(ac.destination);
+        o.type = "sine";
+        o.frequency.value = freq;
+        g.gain.value = vol;
+        o.start();
+        o.stop(ac.currentTime + time);
+        setTimeout(()=> ac.close(), (time + 0.05) * 1000);
+      } catch (e) {}
+    }
+
+    function resetGame() {
+      objects = [];
+      spawnTimer = 0;
+      spawnInterval = 0.9;
+      difficultyTimer = 0;
+      score = 0;
+      scoreEl.textContent = '0';
+      player.x = W/2 - player.w/2;
+      // keep player y proportional (in case canvas size changed)
+      player.y = Math.round(H - H * 0.11);
+      player.vx = 0;
+    }
+
+    function spawnObject(mode = 'decor') {
+      const minW = mode === 'decor' ? 24 : 28;
+      const maxW = mode === 'decor' ? 96 : 120;
+      const w = Math.floor(Math.random() * (maxW - minW) + minW);
+      const h = Math.floor((Math.random() * 0.85 + 0.5) * w * 0.25) + 10;
+      const x = Math.floor(Math.random() * (W - w - 20) + 10);
+      const color = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+      if (mode === 'decor') {
+        objects.push({ x, y: -30 - Math.random()*200, w, h, vy: 40 + Math.random()*80, sway: (Math.random()*2-1) * 18, color, decor: true, alpha: 0.18 + Math.random()*0.18 });
+      } else {
+        const base = 140 + Math.random()*160 + Math.min(score, 400) * 0.18;
+        objects.push({ x, y: -40 - Math.random()*200, w, h, vy: base, sway: (Math.random()*2-1) * 28, color, decor: false, alpha: 1 });
+      }
+    }
+
+    function updateAll(dt) {
+      if (!running) return;
+
+      spawnTimer += dt;
+      if (playing) {
+        difficultyTimer += dt;
+        if (spawnTimer >= spawnInterval) { spawnTimer = 0; spawnObject('game'); }
+        if (difficultyTimer > 3 && spawnInterval > 0.34) { spawnInterval *= 0.985; difficultyTimer = 0; }
+      } else {
+        if (spawnTimer >= decorInterval) { spawnTimer = 0; spawnObject('decor'); }
+      }
+
+      for (let i = objects.length - 1; i >= 0; i--) {
+        const o = objects[i];
+        o.y += o.vy * dt;
+        o.x += Math.sin((o.y + i*17) * 0.008) * (o.sway * dt);
+        if (o.y > H + 120) {
+          if (!o.decor && playing) {
+            score += 1; scoreEl.textContent = score;
+            if (score % 10 === 0) beep(880, 0.06, 0.04);
+          }
+          objects.splice(i, 1);
+        }
+      }
+
+      player.x += player.vx * dt;
+      if (player.x < 10) player.x = 10;
+      if (player.x + player.w > W - 10) player.x = W - 10 - player.w;
+
+      if (playing) {
+        for (let o of objects) {
+          if (o.decor) continue;
+          if (rectIntersect(player.x, player.y, player.w, player.h, o.x, o.y, o.w, o.h)) {
+            beep(160, 0.48, 0.09);
+            endGame();
+            return;
+          }
+        }
+      }
+    }
+
+    function rectIntersect(ax,ay,aw,ah,bx,by,bw,bh){
+      return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+    }
+
+    function drawAll() {
+      const g = ctx.createLinearGradient(0,0,0,H);
+      g.addColorStop(0, '#052a30');
+      g.addColorStop(0.45, '#061f24');
+      g.addColorStop(1, '#031217');
+      ctx.fillStyle = g;
+      ctx.fillRect(0,0,W,H);
+
+      const vg = ctx.createRadialGradient(W*0.5, H*0.25, 80, W*0.5, H*0.5, Math.max(W,H));
+      vg.addColorStop(0, 'rgba(255,255,255,0.01)');
+      vg.addColorStop(1, 'rgba(0,0,0,0.35)');
+      ctx.fillStyle = vg;
+      ctx.fillRect(0,0,W,H);
+
+      for (let o of objects) {
+        ctx.save();
+        ctx.globalAlpha = o.alpha ?? 1;
+        ctx.fillStyle = 'rgba(0,0,0,0.12)';
+        roundRect(ctx, o.x+3, o.y+5, o.w, o.h, 8, true, false);
+        const mg = ctx.createLinearGradient(o.x, o.y, o.x, o.y + o.h);
+        mg.addColorStop(0, lighten(o.color, 12));
+        mg.addColorStop(1, o.color);
+        ctx.fillStyle = mg;
+        roundRect(ctx, o.x, o.y, o.w, o.h, 10, true, false);
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fillRect(o.x + Math.max(6, o.w*0.12), o.y + 4, Math.min(20, o.w*0.3), Math.min(6, o.h*0.35));
+        ctx.restore();
+      }
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,204,153,0.12)';
+      roundRect(ctx, player.x - 14, player.y - 16, player.w + 28, player.h + 42, 14, true, false);
+      const pg = ctx.createLinearGradient(player.x, player.y, player.x, player.y + player.h);
+      pg.addColorStop(0, '#9FE2BF');
+      pg.addColorStop(1, '#00CC99');
+      ctx.fillStyle = pg;
+      roundRect(ctx, player.x, player.y, player.w, player.h, 10, true, false);
+      ctx.restore();
+
+      ctx.fillStyle = 'rgba(255,255,255,0.02)';
+      ctx.fillRect(0,0,W,44);
+    }
+
+    function lighten(hex, pct) {
+      const c = hex.replace('#','');
+      const num = parseInt(c,16);
+      let r = (num >> 16) + Math.round(255 * pct/100);
+      let g = ((num >> 8) & 0x00FF) + Math.round(255 * pct/100);
+      let b = (num & 0x0000FF) + Math.round(255 * pct/100);
+      r = Math.min(255, r); g = Math.min(255,g); b = Math.min(255,b);
+      return '#' + ((1<<24) + (r<<16) + (g<<8) + b).toString(16).slice(1);
+    }
+
+    function roundRect(ctx,x,y,w,h,r,fill,stroke){
+      if (typeof r === 'undefined') r = 6;
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+      if(fill) ctx.fill();
+      if(stroke) ctx.stroke();
+    }
+
+    function endGame(){
+      playing = false;
+      // slide overlay back into view
+      overlay.classList.remove('slide-out');
+      overlay.setAttribute('aria-hidden','false');
+      // restore HUD and start button state
+      overlay.style.display = '';
+      finalScoreEl.textContent = `Score: ${score}`;
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('dodge_high', highScore);
+        highEl.textContent = highScore;
+        finalScoreEl.textContent += ' — NEW HIGH!';
+      }
+      // remove bring-forward class so canvas returns to normal
+      canvasWrap.classList.remove('bring-forward');
+    }
+
+    function loop(ts) {
+      if (!lastTime) lastTime = ts;
+      const dt = Math.min(0.05, (ts - lastTime) / 1000);
+      lastTime = ts;
+      if (!paused) updateAll(dt);
+      drawAll();
+      requestAnimationFrame(loop);
+    }
+
+    const keys = { left:false, right:false };
+    window.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = true;
+      if (e.key === 'ArrowRight' || e.key === 'd') keys.right = true;
+      updatePlayerVelocity();
+    });
+    window.addEventListener('keyup', e => {
+      if (e.key === 'ArrowLeft' || e.key === 'a') keys.left = false;
+      if (e.key === 'ArrowRight' || e.key === 'd') keys.right = false;
+      updatePlayerVelocity();
+    });
+    function updatePlayerVelocity(){
+      if (keys.left && !keys.right) player.vx = -player.speed;
+      else if (keys.right && !keys.left) player.vx = player.speed;
+      else player.vx = 0;
+    }
+
+    let dragging = false;
+    function canvasPos(e){
+      const rect = canvas.getBoundingClientRect();
+      const clientX = (e.touches ? e.touches[0].clientX : e.clientX);
+      const cx = clientX - rect.left;
+      return Math.max(0, Math.min(rect.width, cx)) * (W / rect.width);
+    }
+    function movePlayerToward(px){
+      const center = player.w / 2;
+      player.x = px - center;
+      if (player.x < 10) player.x = 10;
+      if (player.x + player.w > W - 10) player.x = W - 10 - player.w;
+    }
+
+    canvas.addEventListener('mousedown', e => { dragging = true; movePlayerToward(canvasPos(e)); });
+    window.addEventListener('mousemove', e => { if (!dragging) return; movePlayerToward(canvasPos(e)); });
+    window.addEventListener('mouseup', e => dragging = false);
+
+    canvas.addEventListener('touchstart', e => { dragging = true; movePlayerToward(canvasPos(e)); }, {passive:true});
+    window.addEventListener('touchmove', e => { if (!dragging) return; movePlayerToward(canvasPos(e)); }, {passive:true});
+    window.addEventListener('touchend', e => dragging = false);
+
+    // START: slide overlay out, bring canvas forward, then start playing
+    startBtn.addEventListener('click', () => {
+      // add slide-out (overlay moves entirely out of the way)
+      overlay.classList.add('slide-out');
+      overlay.setAttribute('aria-hidden','true');
+      // bring canvas forward visually
+      canvasWrap.classList.add('bring-forward');
+
+      // after animation completes, hide overlay from layout (so clicks hit canvas/hud)
+      const after = 420; // match CSS transition
+      setTimeout(() => {
+        overlay.style.display = 'none';
+        resetGame();
+        playing = true;
+        beep(880, 0.06, 0.04);
+      }, after + 10);
+    });
+
+    muteBtn.addEventListener('click', () => {
+      muted = !muted;
+      muteBtn.textContent = muted ? 'Unmute' : 'Mute';
+    });
+
+    // Fit canvas to viewport and avoid clipping vertically
+    function fitCanvas(){
+      const maxW = Math.min(window.innerWidth - 48, 680);
+      const maxH = Math.min(window.innerHeight - 48, 920);
+      const scale = Math.min(maxW / W, maxH / H);
+      canvas.style.width = Math.round(W * scale) + 'px';
+      canvas.style.height = Math.round(H * scale) + 'px';
+    }
+    window.addEventListener('resize', fitCanvas);
+    fitCanvas();
+
+    window.addEventListener('blur', () => { paused = true; });
+    window.addEventListener('focus', () => { paused = false; });
+
+    // initial decorative items for lively overlay
+    for (let i = 0; i < 7; i++) spawnObject('decor');
+
+    requestAnimationFrame(loop);
+
+  })();
+  </script>
+</body>
+</html>
